@@ -29,7 +29,7 @@ echo "--- 🚀 Starting Setup ---"
 echo "--- 📦 Installing System Dependencies ---"
 apt-get update -qq
 # Installing python3-venv (standard name on Debian/Ubuntu) and tmux
-apt-get install -y python3-venv python3-pip git tmux
+apt-get install -y python3-venv python3-pip git tmux libgl1
 
 # 3. Clone Repository
 if [ ! -d "$DIR_NAME" ]; then
