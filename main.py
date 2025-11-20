@@ -11,7 +11,7 @@ from helper.utils import read_text_file, save_label, save_xml_label
 from helper.xml_generator import generate_xml_content
 # from helper.khmer_text_sorter import sort_text2sub
 from helper.khnormal import khnormal, testsyl
-
+from helper.get_negative_sample import get_negative_sample, get_negative_sample_text
 
 dotenv.load_dotenv()
 
@@ -33,6 +33,11 @@ SAVE_DIR = os.getenv("SAVE_DIR", "synthetic_images/")
 LABEL_DIR = os.getenv("LABEL_DIR", "synthetic_labels/")
 XML_DIR = os.getenv("XML_DIR", "synthetic_xml_labels/")
 BACKGROUND_IMAGES_DIR = os.getenv("BACKGROUND_IMAGES_DIR", "background/")
+NEGATIVE_IMAGES_DIR = os.getenv("NEGATIVE_IMAGES_DIR", "nega_background/")
+
+POSSIBILITIES_FOR_END_NOW = float(os.getenv("POSSIBILITIES_FOR_END_NOW", 0.1))
+POSSIBILITIES_FOR_NEGATIVE_SAMPLE = float(os.getenv("POSSIBILITIES_FOR_NEGATIVE_SAMPLE", 0.2))
+POSSIBILITIES_FOR_COMPLETE_NEGATIVE_SAMPLE = float(os.getenv("POSSIBILITIES_FOR_COMPLETE_NEGATIVE_SAMPLE", 0.1))
 
 # FONT SIZE
 MIN_FONT_SIZE = int(os.getenv("MIN_FONT_SIZE", 20))
@@ -129,54 +134,13 @@ def create_text_image_with_bbox() -> tuple[Image.Image, list[list[tuple[str, tup
 
     bg = get_random_background(IMAGE_SIZE, BACKGROUND_IMAGES_DIR, MIN_IMG_SCALE, MAX_IMG_SCALE)
 
-    drawn_image, lines, annotations = draw_texts_on_image(
-        bg,
-        texts,
-        FONT_DIR,
-        MIN_IMG_PADDING,
-        MAX_IMG_PADDING,
-        MIN_LINE_SPACING,
-        MAX_LINE_SPACING,
-        MIN_FONT_SIZE,
-        MAX_FONT_SIZE,
-        MIN_WORD_PADDING,
-        MAX_WORD_PADDING,
-
-        POSSIBILITIES_FOR_NEW_PADDING,
-        POSSIBILITIES_FOR_NEW_LINE_SPACING,
-        POSSIBILITIES_FOR_NEW_WORD_PADDING,
-        POSSIBILITIES_FOR_NEW_FONT_SIZE,
-        POSSIBILITIES_FOR_NEW_FONT,
-        POSSIBILITIES_FOR_NEW_Y, NEW_Y_RANGE,
-        POSSIBILITIES_FOR_NEW_X, NEW_X_RANGE,
-        POSSIBILITIES_FOR_NEW_COLOR,
-        BBOX_WIDTH_PADDING, BBOX_HEIGHT_PADDING,
-    )
+    drawn_image, lines, annotations = draw_texts_on_image(texts)
 
     return drawn_image, lines, annotations
 
 
 def draw_texts_on_image(
-    bg: Image.Image,
     texts: list[str],
-    font_dir: str,
-    min_img_padding: int,
-    max_img_padding: int,
-    min_line_spacing: int,
-    max_line_spacing: int,
-    min_font_size: int,
-    max_font_size: int,
-    min_word_padding: int,
-    max_word_padding: int,
-    possibilities_for_new_padding: float,
-    possibilities_for_new_line_spacing: float,
-    possibilities_for_new_word_padding: float,
-    possibilities_for_new_font_size: float,
-    possibilities_for_new_font: float,
-    possibilities_for_new_y: float, new_y_range: tuple[int, int],
-    possibilities_for_new_x: float, new_x_range: tuple[int, int],
-    possibilities_for_new_color: float,
-    bbox_width_padding: int, bbox_height_padding: int,
 ) -> tuple[Image.Image, list[list[tuple[str, tuple[float, float, float, float]]]], list[tuple[float, float, float, float]]]:
     """
     Draws a list of words onto `bg`, flowing them in lines
@@ -184,15 +148,31 @@ def draw_texts_on_image(
     plus a list of (x, y, w, h) for each drawn word.
     """
 
-    x_padding, y_padding = get_random_img_padding(min_img_padding=min_img_padding, max_img_padding=max_img_padding)
-    line_spacing = get_random_line_spacing(min_line_spacing=min_line_spacing, max_line_spacing=max_line_spacing)
-    font_size = get_random_font_size(min_font_size=min_font_size, max_font_size=max_font_size)
-    word_padding = get_random_word_padding(min_word_padding=min_word_padding, max_word_padding=max_word_padding)
-
-    # Pick one font file at random, and load it once at `font_size`.
-    chosen_font_path = get_random_font(font_dir)
-    font = ImageFont.truetype(chosen_font_path, font_size)
+    x_padding, y_padding = get_random_img_padding(min_img_padding=MIN_IMG_PADDING, max_img_padding=MAX_IMG_PADDING)
+    line_spacing = get_random_line_spacing(min_line_spacing=MIN_LINE_SPACING, max_line_spacing=MAX_LINE_SPACING)
+    font_size = get_random_font_size(min_font_size=MIN_FONT_SIZE, max_font_size=MAX_FONT_SIZE)
+    word_padding = get_random_word_padding(min_word_padding=MIN_WORD_PADDING, max_word_padding=MAX_WORD_PADDING)
     
+    bg = get_random_background(IMAGE_SIZE, BACKGROUND_IMAGES_DIR, MIN_IMG_SCALE, MAX_IMG_SCALE) 
+    
+    # Default to a random Khmer font
+    current_font_path = get_random_font(FONT_DIR)
+    ori_font = ImageFont.truetype(current_font_path, font_size)
+
+    oov_text = False
+    if random.random() < POSSIBILITIES_FOR_COMPLETE_NEGATIVE_SAMPLE:
+        if random.choice(["no_text", "text"]) == "text":
+            # Full OOV text: Update texts and switch the font path to the negative font
+            texts, nega_font_path = get_negative_sample_text(MIN_PARAG_LENGTH, MAX_PARAG_LENGTH)
+            current_font_path = nega_font_path 
+            ori_font = ImageFont.truetype(current_font_path, font_size)
+            oov_text = True
+        else:
+            # No text: Return empty immediately
+            # Using NEGATIVE_IMAGE_DIR if defined, otherwise standard background logic
+            # bg = get_random_background(IMAGE_SIZE, NEGATIVE_IMAGE_DIR, MIN_IMG_SCALE, MAX_IMG_SCALE)
+            return bg, [], []
+
     draw = ImageDraw.Draw(bg)
     annotations = []
     current_line = []
@@ -205,29 +185,52 @@ def draw_texts_on_image(
     # Pick a text color that contrasts with the background
     text_color = get_contrast_color(bg, 0, 0, bg.width, bg.height)
     
-    if random.random() < possibilities_for_new_font_size:
-        font_size = get_random_font_size(min_font_size=min_font_size, max_font_size=max_font_size)
-        font = ImageFont.truetype(chosen_font_path, font_size)
-
     for word in texts:
-        if random.random() < possibilities_for_new_padding:
-            x_padding, y_padding = get_random_img_padding(min_img_padding=min_img_padding, max_img_padding=max_img_padding)
-        if random.random() < possibilities_for_new_line_spacing:
-            line_spacing = get_random_line_spacing(min_line_spacing=min_line_spacing, max_line_spacing=max_line_spacing)
-        if random.random() < possibilities_for_new_font:
-            chosen_font_path = get_random_font(font_dir)
-            font = ImageFont.truetype(chosen_font_path, font_size)
-        if random.random() < possibilities_for_new_word_padding:
-            word_padding = get_random_word_padding(min_word_padding=min_word_padding, max_word_padding=max_word_padding)
-        if random.random() < possibilities_for_new_y:
-            current_y += random.randint(*new_y_range)
-        if random.random() < possibilities_for_new_x:
-            current_x += random.randint(*new_x_range)
-        if random.random() < possibilities_for_new_color:
+        oov_injection = False
+        font = ori_font # Start with the current paragraph font
+
+        # --- Random Events ---
+        
+        # A. Change Font Size
+        # We allow this even for OOV text to have size variation, but we must use current_font_path
+        if random.random() < POSSIBILITIES_FOR_NEW_FONT_SIZE:
+            font_size = get_random_font_size(min_font_size=MIN_FONT_SIZE, max_font_size=MAX_FONT_SIZE)
+            ori_font = ImageFont.truetype(current_font_path, font_size)
+            font = ori_font
+
+        # B. Change Font Family (ONLY if not already in a Full OOV paragraph)
+        if not oov_text and random.random() < POSSIBILITIES_FOR_NEW_FONT:
+            current_font_path = get_random_font(FONT_DIR)
+            font = ImageFont.truetype(current_font_path, font_size)
+            ori_font = font # Update the base font for subsequent words
+
+        # C. Spacing and Positioning
+        if random.random() < POSSIBILITIES_FOR_NEW_PADDING:
+            x_padding, y_padding = get_random_img_padding(min_img_padding=MIN_IMG_PADDING, max_img_padding=MAX_IMG_PADDING)
+        if random.random() < POSSIBILITIES_FOR_NEW_LINE_SPACING:
+            line_spacing = get_random_line_spacing(min_line_spacing=MIN_LINE_SPACING, max_line_spacing=MAX_LINE_SPACING)
+        if random.random() < POSSIBILITIES_FOR_NEW_WORD_PADDING:
+            word_padding = get_random_word_padding(min_word_padding=MIN_WORD_PADDING, max_word_padding=MAX_WORD_PADDING)
+        if random.random() < POSSIBILITIES_FOR_NEW_Y:
+            current_y += random.randint(*NEW_Y_RANGE)
+        if random.random() < POSSIBILITIES_FOR_NEW_X:
+            current_x += random.randint(*NEW_X_RANGE)
+        if random.random() < POSSIBILITIES_FOR_NEW_COLOR:
             text_color = get_contrast_color(bg, 0, 0, bg.width, bg.height)
+        
+        # D. Negative Sample Injection (Hijack)
+        # Only inject if we aren't already in a full OOV paragraph
+        if not oov_text and random.random() < POSSIBILITIES_FOR_NEGATIVE_SAMPLE:
+            word, n_font_path = get_negative_sample()
+            # Use the specific font for this negative word, do NOT update ori_font
+            font = ImageFont.truetype(n_font_path, font_size)
+            oov_injection = True
+            
+        # E. Sudden Stop
+        if random.random() < POSSIBILITIES_FOR_END_NOW:
+            break
 
         # Measure this word
-        # print(word)
         bbox = font.getbbox(word)
         left, top, right, bottom = bbox  # Unpack the bbox values
         text_width = right - left
@@ -249,12 +252,15 @@ def draw_texts_on_image(
         draw.text((current_x, current_y), word, font=font, fill=text_color)
         
         # Calculate padded bounding box
-        x = current_x + left - bbox_width_padding  # Expand left
-        y = current_y + top - bbox_height_padding  # Expand top
-        text_width_padded = text_width + 2 * bbox_width_padding
-        text_height_padded = text_height + 2 * bbox_height_padding
-
-        word_info = (word, (x, y, text_width_padded, text_height_padded))
+        x = current_x + left - BBOX_WIDTH_PADDING  # Expand left
+        y = current_y + top - BBOX_HEIGHT_PADDING  # Expand top
+        text_width_padded = text_width + 2 * BBOX_WIDTH_PADDING
+        text_height_padded = text_height + 2 * BBOX_HEIGHT_PADDING
+        
+        # labeling
+        label_text = "<OOV>" if (oov_text or oov_injection) else word
+        word_info = (label_text, (x, y, text_width_padded, text_height_padded))
+        
         current_line.append(word_info)
         annotations.append((x, y, text_width_padded, text_height_padded))
 
