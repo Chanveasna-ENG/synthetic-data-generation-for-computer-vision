@@ -127,9 +127,9 @@ def create_text_image_with_bbox() -> tuple[Image.Image, list[list[tuple[str, tup
     # wordlist_len = len(TEXT_WORDS)
     # texts = TEXT_WORDS[(start := random.randint(0, wordlist_len - text_len)) : start + text_len]
 
-    texts = ["".join(khnormal(text)) for text in texts] # normalize words
+    #texts = ["".join(khnormal(text)) for text in texts] # normalize words
     
-    # texts = khnormal("".join(texts)) # normalized text in subsyllables
+    texts = khnormal("".join(texts)) # normalized text in subsyllables
     # texts = testsyl("".join(texts))  # segment texts into subsyllables
 
     bg = get_random_background(IMAGE_SIZE, BACKGROUND_IMAGES_DIR, MIN_IMG_SCALE, MAX_IMG_SCALE)
@@ -258,7 +258,7 @@ def draw_texts_on_image(
         text_height_padded = text_height + 2 * BBOX_HEIGHT_PADDING
         
         # labeling
-        label_text = "<OOV>" if (oov_text or oov_injection) else word
+        label_text = "[OOV]" if (oov_text or oov_injection) else word
         word_info = (label_text, (x, y, text_width_padded, text_height_padded))
         
         current_line.append(word_info)
